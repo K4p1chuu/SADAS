@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CEPiK - System Ewidencji Pojazdów</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style> 
+        body { font-family: 'Inter', sans-serif; }
+        .tab-btn.active { 
+            border-color: #3b82f6;
+            color: #60a5fa;
+            font-weight: 600;
+        }
+        .template-btn.active { background-color: #3b82f6; color: white; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex h-screen">
+
+    <main class="flex-1 p-8 overflow-y-auto">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-white">System Ewidencji Pojazdów i Kierowców (CEPiK)</h1>
+            <button id="logout-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg flex items-center">
+                <i data-lucide="log-out" class="w-5 h-5 mr-2"></i>Wyloguj
+            </button>
+        </div>
+        
+        <div class="mb-6 border-b border-gray-700">
+            <nav class="flex -mb-px space-x-6">
+                <button data-tab="wystaw" class="tab-btn active py-4 px-1 inline-flex items-center gap-2 text-sm font-medium text-center border-b-2 border-transparent hover:text-blue-400">Wystaw Status</button>
+                <button data-tab="baza" class="tab-btn py-4 px-1 inline-flex items-center gap-2 text-sm font-medium text-center border-b-2 border-transparent text-gray-400 hover:text-blue-400">Baza Danych</button>
+                <button data-tab="diagnosci" class="tab-btn py-4 px-1 inline-flex items-center gap-2 text-sm font-medium text-center border-b-2 border-transparent text-gray-400 hover:text-blue-400">Diagności</button>
+            </nav>
+        </div>
+
+        <div id="tab-wystaw" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg self-start">
+                    <h2 class="text-xl font-semibold text-white mb-4">Wystaw Status Techniczny</h2>
+                    <div class="mb-4 flex gap-2">
+                        <button data-template="positive" class="template-btn active flex-1 bg-gray-700 hover:bg-gray-600 font-bold py-2 px-4 rounded-lg">Pozytywny</button>
+                        <button data-template="negative" class="template-btn flex-1 bg-gray-700 hover:bg-gray-600 font-bold py-2 px-4 rounded-lg">Negatywny</button>
+                        <button data-template="demontaz" class="template-btn flex-1 bg-gray-700 hover:bg-gray-600 font-bold py-2 px-4 rounded-lg">Demontaż</button>
+                    </div>
+                    <form id="cepik-form" class="space-y-3">
+                    </form>
+                    <button id="generate-btn" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Generuj i Kopiuj</button>
+                </div>
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-semibold text-white mb-4">Podgląd i Zapis</h2>
+                    <div id="preview-container" class="bg-gray-900 p-4 rounded-md h-96 overflow-y-auto whitespace-pre-wrap font-mono text-sm">Wybierz szablon i wypełnij formularz.</div>
+                    <p id="form-message" class="text-center h-4 mt-4"></p>
+                    <button id="save-btn" class="mt-4 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed" disabled>Zapisz w Bazie Danych</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="tab-baza" class="tab-content hidden">
+             </div>
+
+        <div id="tab-diagnosci" class="tab-content hidden">
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h2 class="text-xl font-semibold text-white mb-4">Zarejestrowani Diagności</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm text-left text-gray-300">
+                        <thead class="text-xs text-gray-400 uppercase bg-gray-700">
+                            <tr>
+                                <th class="px-6 py-3">Numer SKP</th>
+                                <th class="px-6 py-3">Nick Discord</th>
+                                <th class="px-6 py-3">ID Discord</th>
+                                <th class="px-6 py-3">Stanowisko</th>
+                            </tr>
+                        </thead>
+                        <tbody id="diagnosticians-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <script src="shared.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('mdt-token');
+            if (!token) {
+                window.location.href = 'index.html';
+                return;
+            }
+
+            const { userData } = await fetch('/api/user-data', { headers: { 'Authorization': token } }).then(res => res.json());
+            const userSkpNumber = userData.skpNumber || 'GVW/0';
+            
+            let allCitizens = [];
+            try {
+                const response = await fetch('/api/citizens', { headers: { 'Authorization': token } });
+                allCitizens = await response.json();
+            } catch (error) {
+                console.error("Błąd ładowania obywateli:", error);
+            }
+            
+            const form = document.getElementById('cepik-form');
+            const previewContainer = document.getElementById('preview-container');
+            const formMessage = document.getElementById('form-message');
+            const saveBtn = document.getElementById('save-btn');
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+            let currentTemplate = 'positive';
+            let generatedContent = '';
+
+            const templates = {
+                positive: {
+                    title: "POZYTYWNY WYNIK BADANIA TECHNICZNEGO",
+                    fields: [
+                        { name: 'Właściciel pojazdu', type: 'autocomplete' }, { name: 'Rodzaj nadwozia' }, { name: 'Marka' }, { name: 'Model' }, { name: 'Trim' }, { name: 'Rok Produkcji', type: 'number' }, { name: 'Numery rejestracyjne, stan' }, { name: 'Historia pojazdu' }, { name: 'Data ostatnio wykonywanego Badania Technicznego' }, { name: 'Data następnego Badania Technicznego' }, { name: 'Stan licznika' }, { name: 'Wynik badania', value: '__Pozytywny__', readonly: true }, { name: 'Numer SKP', value: userSkpNumber, readonly: true }
+                    ]
+                },
+                negative: {
+                    title: "NEGATYWNY WYNIK BADANIA TECHNICZNEGO",
+                    fields: [
+                        { name: 'Właściciel pojazdu', type: 'autocomplete' }, { name: 'Rodzaj nadwozia' }, { name: 'Marka' }, { name: 'Model' }, { name: 'Trim' }, { name: 'Rok Produkcji', type: 'number' }, { name: 'Numery rejestracyjne, stan' }, { name: 'Historia pojazdu' }, { name: 'Data ostatnio wykonywanego Badania Technicznego' }, { name: 'Data następnego Badania Technicznego', strikethrough: true }, { name: 'Stan licznika' }, { name: 'Wynik badania', value: '__Negatywny__', readonly: true }, { name: 'Powód' }, { name: 'Numer SKP', value: userSkpNumber, readonly: true }, { name: 'Data zawieszenia dowodu rejestracyjnego' }
+                    ]
+                },
+                demontaz: {
+                    title: "ZAŚWIADCZENIE PRZEKAZANIA POJAZDU DO STACJI DEMONTAŻU POJAZDÓW",
+                    fields: [
+                        { name: 'Właściciel pojazdu', type: 'autocomplete' }, { name: 'Rodzaj nadwozia' }, { name: 'Marka' }, { name: 'Model' }, { name: 'Trim' }, { name: 'Rok produkcji', type: 'number' }, { name: 'Numery rejestracyjne, stan' }, { name: 'Historia pojazdu' }, { name: 'Data ostatnio wykonywanego Badania Technicznego' }, { name: 'Data ostatniego ważnego badania technicznego' }, { name: 'Stan licznika' }, { name: 'Numer SKP', value: userSkpNumber, readonly: true }, { name: 'Powód przekazania' }
+                    ]
+                }
+            };
+            
+            function renderForm() {
+                const template = templates[currentTemplate];
+                form.innerHTML = template.fields.map(field => {
+                    const id = field.name.toLowerCase().replace(/[\s,:]/g, '-');
+                    const value = field.value || '';
+                    if (field.type === 'autocomplete') {
+                        return `<div class="relative"><input type="text" id="${id}" placeholder="${field.name}" class="w-full bg-gray-700 rounded p-2" required><div class="autocomplete-suggestions absolute w-full bg-gray-600 rounded-b-md overflow-y-auto z-10 border-t border-gray-500 hidden" style="max-height: 150px;"></div></div>`;
+                    }
+                    return `<input type="${field.type || 'text'}" id="${id}" placeholder="${field.name}" value="${value}" ${field.readonly ? 'readonly' : ''} class="w-full bg-gray-700 rounded p-2 ${field.readonly ? 'cursor-not-allowed' : ''}" required>`;
+                }).join('');
+                
+                form.querySelectorAll('input').forEach(input => {
+                    const parent = input.parentElement;
+                    if (parent && parent.classList.contains('relative')) {
+                         setupCitizenAutocomplete(input, input.nextElementSibling, allCitizens);
+                    }
+                });
+            }
+            
+            function generatePreview() {
+                const template = templates[currentTemplate];
+                let content = `**${template.title}**\n\n`;
+                let isValid = true;
+                template.fields.forEach(field => {
+                    const id = field.name.toLowerCase().replace(/[\s,:]/g, '-');
+                    const input = document.getElementById(id);
+                    const value = input.value.trim();
+                    if (!value && input.required) isValid = false;
+                    
+                    if (field.type === 'autocomplete' && !/^<@\d+>$/.test(value)) {
+                        isValid = false; 
+                    }
+
+                    const fieldValue = field.strikethrough ? `~~${value}~~` : value;
+                    content += `**${field.name}:** ${fieldValue}\n`;
+                });
+                
+                previewContainer.textContent = content;
+                generatedContent = content;
+                saveBtn.disabled = !isValid;
+                return isValid;
+            }
+
+            document.querySelectorAll('.template-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelector('.template-btn.active').classList.remove('active');
+                    btn.classList.add('active');
+                    currentTemplate = btn.dataset.template;
+                    renderForm();
+                    generatePreview();
+                });
+            });
+
+            document.getElementById('generate-btn').addEventListener('click', () => {
+                if (generatePreview()) {
+                    navigator.clipboard.writeText(generatedContent).then(() => {
+                        formMessage.textContent = 'Skopiowano do schowka!';
+                        formMessage.classList.add('text-green-400');
+                    }).catch(() => {
+                        formMessage.textContent = 'Błąd kopiowania.';
+                        formMessage.classList.add('text-red-400');
+                    });
+                } else {
+                    formMessage.textContent = 'Wypełnij wszystkie wymagane pola (sprawdź czy właściciel jest wybrany z listy).';
+                    formMessage.classList.add('text-red-400');
+                }
+                setTimeout(() => {
+                    formMessage.textContent = '';
+                    formMessage.classList.remove('text-green-400', 'text-red-400');
+                }, 3000);
+            });
+
+            saveBtn.addEventListener('click', async () => {
+                 if (!generatePreview()) {
+                    alert('Proszę wypełnić wszystkie pola poprawnie (właściciel musi być pingiem Discord).');
+                    return;
+                }
+
+                formMessage.textContent = 'Zapisywanie w bazie...';
+                try {
+                    const response = await fetch('/api/vehicle-inspection', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': token },
+                        body: JSON.stringify({ reportType: templates[currentTemplate].title, reportContent: generatedContent })
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.message);
+                    
+                    formMessage.textContent = "Pomyślnie zapisano w bazie danych!";
+                    formMessage.classList.add('text-green-400');
+                    form.reset();
+                    renderForm();
+                    generatePreview();
+
+                } catch (error) {
+                    formMessage.textContent = `Błąd: ${error.message}`;
+                    formMessage.classList.add('text-red-400');
+                } finally {
+                     setTimeout(() => {
+                        formMessage.textContent = '';
+                        formMessage.classList.remove('text-green-400', 'text-red-400');
+                    }, 4000);
+                }
+            });
+            
+            document.getElementById('logout-button').addEventListener('click', () => {
+                localStorage.removeItem('mdt-token');
+                window.location.href = 'index.html';
+            });
+            
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+                    
+                    const tabId = `tab-${button.dataset.tab}`;
+                    tabContents.forEach(content => content.classList.add('hidden'));
+                    document.getElementById(tabId).classList.remove('hidden');
+
+                    if (button.dataset.tab === 'baza') {
+                        loadVehicleDatabase();
+                    } else if (button.dataset.tab === 'diagnosci') {
+                        fetchDiagnosticians();
+                    }
+                });
+            });
+
+            async function fetchDiagnosticians() {
+                const tableBody = document.getElementById('diagnosticians-table-body');
+                try {
+                    const response = await fetch('/api/diagnosticians', { headers: { 'Authorization': token } });
+                    const data = await response.json();
+                    tableBody.innerHTML = data.map(d => {
+                         const isLead = d.skpNumber && d.skpNumber.endsWith('001');
+                         const title = isLead ? '<span class="block text-xs text-yellow-400">Założyciel, Naczelnik diagnostyki</span>' : 'Diagnosta';
+                         return `
+                            <tr class="hover:bg-gray-700">
+                                <td class="px-6 py-4 font-mono">${d.skpNumber}</td>
+                                <td class="px-6 py-4">${d.discordNick}</td>
+                                <td class="px-6 py-4">${d.discordId}</td>
+                                <td class="px-6 py-4">${title}</td>
+                            </tr>
+                        `}).join('');
+                } catch(e) {
+                    tableBody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-red-500">Błąd ładowania danych.</td></tr>';
+                }
+            }
+
+            async function loadVehicleDatabase() {
+                const container = document.getElementById('tab-baza');
+                if (container.innerHTML.trim() !== '') return;
+
+                container.innerHTML = '<p class="text-gray-500">Ładowanie bazy danych...</p>';
+                try {
+                    const response = await fetch('vehicle-database.html');
+                    const html = await response.text();
+                    
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const mainContent = doc.querySelector('main');
+                    
+                    mainContent.querySelector('aside')?.remove();
+                    mainContent.querySelector('h1')?.remove();
+                    
+                    container.innerHTML = mainContent.innerHTML;
+                    
+                    // Znajdź i wykonaj skrypt
+                    const scriptTag = doc.querySelector('script:not([src])');
+                    if (scriptTag) {
+                        const script = document.createElement('script');
+                        // Ta zmienna będzie dostępna globalnie dla załadowanego skryptu
+                        window.cepikUserData = userData; 
+                        script.innerHTML = scriptTag.innerHTML.replace("await loadSidebarAndUserData('vehicle-database')", "// Pomiń wczytywanie paska bocznego w CEPiK");
+                        container.appendChild(script);
+                    }
+                } catch (error) {
+                    console.error('Błąd ładowania bazy danych pojazdów:', error);
+                    container.innerHTML = '<p class="text-red-500">Nie udało się załadować bazy danych.</p>';
+                }
+            }
+            
+            renderForm();
+            lucide.createIcons();
+        });
+    </script>
+</body>
+</html>
